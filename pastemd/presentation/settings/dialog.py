@@ -728,8 +728,15 @@ class SettingsDialog:
     def _should_confirm_keep_formula_enable(self) -> bool:
         """Return True when enabling keep-formula requires an explicit warning."""
         original_value = bool(self.current_config.get("Keep_original_formula", False))
-        new_value = bool(self.keep_formula_var.get())
+        new_value = bool(self._get_var_value("keep_formula_var", original_value))
         return new_value and original_value != new_value
+
+    def _get_var_value(self, attr_name: str, fallback: Any) -> Any:
+        """Return a Tk variable value when its lazy tab exists, otherwise fallback."""
+        var = getattr(self, attr_name, None)
+        if var is None:
+            return fallback
+        return var.get()
 
     def _confirm_keep_formula_enable(self) -> bool:
         """
@@ -856,33 +863,72 @@ class SettingsDialog:
             if is_windows():
                 new_config["move_cursor_to_end"] = self.move_cursor_var.get()
             
-            new_config["pandoc_path"] = self.pandoc_path_var.get()
-            ref_docx = self.ref_docx_var.get()
+            new_config["pandoc_path"] = self._get_var_value(
+                "pandoc_path_var",
+                self.current_config.get("pandoc_path", "pandoc"),
+            )
+            ref_docx = self._get_var_value(
+                "ref_docx_var",
+                self.current_config.get("reference_docx") or "",
+            )
             new_config["reference_docx"] = ref_docx if ref_docx else None
             
-            if "html_formatting" not in new_config:
+            if not isinstance(new_config.get("html_formatting"), dict):
                 new_config["html_formatting"] = {}
-            new_config["html_formatting"]["strikethrough_to_del"] = self.strikethrough_var.get()
+            current_html_formatting = self.current_config.get("html_formatting", {})
+            if not isinstance(current_html_formatting, dict):
+                current_html_formatting = {}
+            new_config["html_formatting"]["strikethrough_to_del"] = self._get_var_value(
+                "strikethrough_var",
+                current_html_formatting.get("strikethrough_to_del", True),
+            )
             
-            new_config["md_disable_first_para_indent"] = self.md_indent_var.get()
-            new_config["html_disable_first_para_indent"] = self.html_indent_var.get()
-            new_config["Keep_original_formula"] = self.keep_formula_var.get()
-            new_config["enable_latex_replacements"] = self.enable_latex_replacements_var.get()
-            new_config["fix_single_dollar_block"] = self.fix_single_dollar_block_var.get()
+            new_config["md_disable_first_para_indent"] = self._get_var_value(
+                "md_indent_var",
+                self.current_config.get("md_disable_first_para_indent", True),
+            )
+            new_config["html_disable_first_para_indent"] = self._get_var_value(
+                "html_indent_var",
+                self.current_config.get("html_disable_first_para_indent", True),
+            )
+            new_config["Keep_original_formula"] = self._get_var_value(
+                "keep_formula_var",
+                self.current_config.get("Keep_original_formula", False),
+            )
+            new_config["enable_latex_replacements"] = self._get_var_value(
+                "enable_latex_replacements_var",
+                self.current_config.get("enable_latex_replacements", True),
+            )
+            new_config["fix_single_dollar_block"] = self._get_var_value(
+                "fix_single_dollar_block_var",
+                self.current_config.get("fix_single_dollar_block", True),
+            )
 
             # pandoc_request_headers（实验性功能）
-            if getattr(self, "pandoc_request_headers_enable_var", None) is not None and self.pandoc_request_headers_enable_var.get():
-                raw = self.pandoc_request_headers_text.get("1.0", tk.END).splitlines()
-                headers = [line.strip() for line in raw if isinstance(line, str) and line.strip()]
-                new_config["pandoc_request_headers"] = headers
-            else:
-                # 由于 DEFAULT_CONFIG 中默认包含该字段，不建议删除 key；用空列表表示“禁用任何 header”。
-                new_config["pandoc_request_headers"] = []
+            if getattr(self, "pandoc_request_headers_enable_var", None) is not None:
+                if self.pandoc_request_headers_enable_var.get():
+                    raw = self.pandoc_request_headers_text.get("1.0", tk.END).splitlines()
+                    headers = [line.strip() for line in raw if isinstance(line, str) and line.strip()]
+                    new_config["pandoc_request_headers"] = headers
+                else:
+                    # 由于 DEFAULT_CONFIG 中默认包含该字段，不建议删除 key；用空列表表示“禁用任何 header”。
+                    new_config["pandoc_request_headers"] = []
             
-            new_config["enable_excel"] = self.excel_enable_var.get()
-            new_config["excel_keep_format"] = self.excel_format_var.get()
+            new_config["enable_excel"] = self._get_var_value(
+                "excel_enable_var",
+                self.current_config.get("enable_excel", True),
+            )
+            new_config["excel_keep_format"] = self._get_var_value(
+                "excel_format_var",
+                self.current_config.get("excel_keep_format", True),
+            )
             try:
-                paste_delay_value = float(self.paste_delay_var.get())
+                paste_delay_value = float(
+                    self._get_var_value(
+                        "paste_delay_var",
+                        self.current_config.get("paste_delay_s", 0.3),
+                    )
+                )
                 if paste_delay_value < 0:
                     paste_delay_value = 0.0
             except (TypeError, ValueError):
