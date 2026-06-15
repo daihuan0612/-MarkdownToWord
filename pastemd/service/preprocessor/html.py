@@ -1,6 +1,8 @@
 """HTML content preprocessor."""
 
-from bs4 import BeautifulSoup
+import re
+
+from bs4 import BeautifulSoup, NavigableString, Tag
 from .base import BasePreprocessor
 from ...utils.html_formatter import (
     clean_html_content,
@@ -12,6 +14,11 @@ from ...utils.logging import log
 
 
 OBSIDIAN_CLIPBOARD_MARKER = "<!-- obsidian -->"
+PRESERVE_NEWLINE_WHITE_SPACE_RE = re.compile(
+    r"(?:^|;)\s*white-space\s*:\s*(?:pre-wrap|pre-line|break-spaces)\b",
+    re.IGNORECASE,
+)
+NEWLINE_EXCLUDED_TAGS = {"script", "style", "textarea", "pre", "code"}
 
 
 def _wrap_obsidian_math_latex(soup: BeautifulSoup, html: str) -> None:
@@ -32,6 +39,34 @@ def _wrap_obsidian_math_latex(soup: BeautifulSoup, html: str) -> None:
             continue
         latex = text if text.startswith("$$") else f"$${text}$$"
         tag.replace_with(latex)
+
+
+def _convert_preserved_newlines_to_br(soup: BeautifulSoup) -> None:
+    """Make CSS-preserved text newlines explicit before Pandoc consumes HTML."""
+    for tag in soup.find_all(style=PRESERVE_NEWLINE_WHITE_SPACE_RE):
+        if not isinstance(tag, Tag):
+            continue
+        for text_node in list(tag.find_all(string=True)):
+            parent = text_node.parent
+            if not parent or any(
+                ancestor.name and ancestor.name.lower() in NEWLINE_EXCLUDED_TAGS
+                for ancestor in text_node.parents
+            ):
+                continue
+
+            text = str(text_node).replace("\r\n", "\n").replace("\r", "\n")
+            if "\n" not in text:
+                continue
+
+            replacement = []
+            parts = text.split("\n")
+            for index, part in enumerate(parts):
+                if part:
+                    replacement.append(NavigableString(part))
+                if index < len(parts) - 1:
+                    replacement.append(soup.new_tag("br"))
+
+            text_node.replace_with(*replacement)
 
 
 class HtmlPreprocessor(BasePreprocessor):
@@ -60,6 +95,7 @@ class HtmlPreprocessor(BasePreprocessor):
         soup = BeautifulSoup(html, "html.parser")
         _wrap_obsidian_math_latex(soup, html)
         clean_html_content(soup, config)
+        _convert_preserved_newlines_to_br(soup)
 
         html_formatting = config.get("html_formatting") or config.get("Html_formatting") or {}
         if not isinstance(html_formatting, dict):
